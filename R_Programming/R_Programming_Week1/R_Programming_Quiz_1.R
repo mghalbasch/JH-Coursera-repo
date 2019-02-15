@@ -1,7 +1,6 @@
 library(tidyverse)
 
-setwd("C:/Users/Matt/Documents/datasciencecoursera")
-getwd()
+#setwd("C:/Users/Matt/Documents/datasciencecoursera/R_Programming_Week1")
 data <- read.csv("hw1_data.csv")
 head(data,2)
 tail(data,2)
