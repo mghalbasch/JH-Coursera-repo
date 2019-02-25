@@ -1,0 +1,294 @@
+---
+title: "An Analysis of the Damage of Catastrophic Storm Events by Type"
+output: html_document
+---
+## Synopsis
+
+This report studies the extent of damages from various types of storm events across the United States, and identifies several particularly harmful event types in terms of economic and personal damages.
+We find that flooding/heavy rain events have led to large economic and health damages in recent years, largely due to catastrophic events with huge impacts.
+We also find that Tornado and Fire/Heat related events are associated with high injury or fatality counts, with these effects due to many events over recent years.
+Hurricanes are found to be the single most damaging type of event on a per-event basis, with huge damages despite relatively few occurrences.
+These types of catastrophic events may be an important case study in storm related damages in future work.
+
+
+## Data Processing
+
+The data for this analysis is provided by the National Oceanic and Atmospheric Administration's (NOAA's) [Storm Database](https://www.ncdc.noaa.gov/stormevents/).
+The NOAA also provides
+[Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) and an [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf) relating to this database for further information.
+
+Before we start, we will load all the R packages we will use in this analysis.
+
+```{r message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(xtable)
+options(xtable.comment=FALSE)
+```
+
+### Reading in the Data
+
+Now we are ready to download the data and load it in to work with.
+The file is a csv file compressed with bzip2, which we can read in with `read.csv`.
+
+```{r cache=TRUE}
+if(!file.exists("./data")){dir.create("./data")}
+
+if(!file.exists("./data/storm_data.csv.bz2")){
+  data_url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+  download.file(data_url, "./data/storm_data.csv.bz2", method="curl")}
+
+raw_storm_data <- read.csv("./data/storm_data.csv.bz2")
+```
+
+The resulting dataframe is composed of 902,297 rows and 37 columns:
+
+```{r}
+dim(raw_storm_data)
+colnames(raw_storm_data)
+```
+
+The question we are looking to answer in this analysis is which types of events are most harmful to people, and which are most harmul to the economy.
+The parts of this data we will need for this analysis are the date of the weather event (`BGN_DATE`), the type of event (`EVTYPE`), and personal and economic damage (`FATALITIES`/`INJURIES` and `PROPDMG`/`PROPDMGEXP`/`CROPDMG`/`CROPDMGEXP`).
+
+```{r cache=TRUE}
+raw_storm_data %>% select(BGN_DATE, EVTYPE, FATALITIES, INJURIES,
+                          PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP) ->
+  select_raw_data
+```
+
+The first thing we will do is decide which years contain complete enough records to retain for our analysis.
+
+### Filtering the Dates
+
+To look at the date of each event, we will take just the beginning date, and ignore the associated time.
+We will process the dates by putting them into the `POSIXct` format, then organize them based on the years.
+
+```{r cache = TRUE}
+select_raw_data %>% 
+  mutate(Date = as.POSIXct(BGN_DATE, format="%m/%d/%Y %H:%M:%OS")) %>%
+  mutate(Year = as.POSIXlt(Date)$year + 1900) ->
+  date_formatted_df
+```
+Now we can look at the number of recorded events as a function of the year to decide which years to keep.
+
+```{r , fig.width = 6, fig.height= 6, fig.align = 'center', fig.cap="A plot of recorded events from 1950-2011. We see that there are many more events recorded in recent years than in the years before 1994. We have decided to include in our analysis only years with at least 15,000 recorded events (represented by the dashed lines shown). This splits the data into two categories, indicated by the red and blue regions. We will retain the blue data points."}
+
+date_formatted_df %>% group_by(Year) %>% summarise(number = n()) %>%
+  ggplot(aes(x = Year, y=number)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 15000, col="tomato", linetype=2) +
+  geom_vline(xintercept = 1993.5, col="tomato", linetype=2) +
+#  coord_cartesian(xlim=c(1949,2012),ylim=c(0,65000)) +
+  annotate("rect", xmin=-Inf, xmax=Inf, ymin=15000, ymax=Inf,
+           alpha = 0.2, fill="deepskyblue3") +
+  annotate("rect", xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=15000,
+           alpha = 0.2, fill="red") +
+  theme_bw(12) +
+  ylab("Number of Recorded Events") +
+  labs(title = "Recorded Storm and Weather Events, 1950-2011")
+
+```
+The figure shows that we can split our data into a relatively continguous lower group (red) with less than 15,000 recorded events and a less contingous group (blue) with at least 20,000 recorded events.
+This corresponds to splitting the data into pre and post-1994, and so for this analysis we will only include data from 1994-2011.
+
+```{r cache=TRUE}
+date_formatted_df %>% filter(Year >= 1994) -> date_filtered_df
+```
+
+### Categorizing Event Types
+
+The next variable of interest is the event type (`EVTYPE`).
+Unfortunately, the data as provided includes an enormous number of unique event classifications, so we want to condense these somewhat.
+
+
+
+```{r}
+length(unique(date_filtered_df$EVTYPE))
+head(unique(date_filtered_df$EVTYPE))
+```
+
+Consulting with the [documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) for this database, the NOAA classifies 48 different event types (see Table 2.1.1 in the documentation).
+For our purposes we will condense these somewhat more, into 9 categories: Hurricanes, Winter Storms, Tornados, Floods/Rain, Hail, Thunderstorms, Fires/Heat, Wind, and Other.
+Most of these categories are comprised of several types of NOAA classifications, and the `Other` category captures a number of miscellaneous events either too small to consider on their own or not fitting into the categories defined above.
+
+Below is a simple function that classifies the event type according to these categories.
+Note that any event classified into more than one of these is classified into the first listed (e.g. Thunderstorm and Wind is classified as Thunderstorm before Wind).
+
+```{r cache=TRUE}
+classify_events <- function(event_type){
+  if(grepl("*HURRICANE*", event_type)){
+    return("Hurricane")
+  }
+  if(grepl("*ICE*",event_type) | grepl("*SNOW*", event_type) |
+     grepl("*WINTER*", event_type) | 
+     grepl("*BLIZZARD*", event_type) |
+     grepl("*FROST*", event_type)){
+    return("Winter Storm")
+  }
+  if(grepl("*TORNADO*", event_type)){
+    return("Tornado")
+  }
+  if(grepl("*HAIL*", event_type)){
+    return("Hail")
+  }
+  if(grepl("*FLOOD*", event_type) | grepl("*RAIN*", event_type)){
+    return("Flood/Rain")
+  }
+  if(grepl("*THUNDER*", event_type) | grepl("*TSTM*", event_type) |
+     grepl("*LIGHTNING*", event_type)){
+    return("Thunderstorm")
+  }
+  if(grepl("*FIRE*", event_type) | grepl("*HEAT*", event_type) |
+     grepl("*DROUGHT*", event_type)){
+    return("Fires/Heat")
+  }
+  if(grepl("*WIND*", event_type)){
+    return("Wind")
+  }
+  else{
+    return("Other")
+  }
+}
+```
+
+We now apply this function to our dataframe to classify our events.
+
+```{r cache = TRUE}
+date_filtered_df %>%
+  mutate(Type = as.factor(
+    sapply(EVTYPE, function(x) classify_events(as.character(x))))) -> classified_data
+```
+
+
+```{r, include=FALSE, results="asis"}
+classified_data %>%
+  group_by(Type) %>% 
+  summarise(n = n()) %>%
+  xtable %>% print(type="html", include.rownames=FALSE)
+
+classified_data %>% filter(Type == "Other") %>%
+  group_by(EVTYPE) %>% summarise(n = n()) %>%
+  arrange(desc(n)) %>% head(5) %>%
+  xtable %>% print(type="html", include.rownames=FALSE)
+```
+
+### Calculating Economic Damages
+
+The final processing step we engaged in is to consolidate the Property and Crop damages into a single variable, which is the economic damage of an event.
+To do this, we need to convert the `PROPDMG` and `PROPDMGEXP` variables into a single numeric value of damage, and similarly for crops.
+Again consulting the [documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf), the `PROPDMGEXP` variable holds the exponent of the property damage.
+The function below translates the damage and exponent into a single numeric value.
+
+```{r cache=TRUE}
+get_exponent <- function(exponent){
+  if(exponent %in% c("k","K")){
+    return(1000)
+  }
+  if(exponent %in% c("m","M")){
+    return(1e+06)
+  }
+  if(exponent %in% c("b","B")){
+    return(1e+09)
+  }
+  if(exponent %in% c("h","H")){
+    return(100)
+  }
+  if(exponent == ""){
+    return(1)
+  }
+  if(exponent %in% c("-","?","+")){
+    return(NA)
+  }
+  else{
+    return((10**as.numeric(as.character(exponent))))
+  }
+}
+```
+Now we use this function to consolidate the crop and property damages, and combine those two to get our final damage estimate.
+
+```{r cache=TRUE}
+classified_data %>%
+  mutate(prop_Multiplier = sapply(PROPDMGEXP, get_exponent)) %>%
+  mutate(crop_Multiplier = sapply(CROPDMGEXP, get_exponent)) %>%
+  mutate(prop_damage = PROPDMG*prop_Multiplier) %>%
+  mutate(crop_damage = CROPDMG*crop_Multiplier) %>%
+  mutate(Total_damage = prop_damage + crop_damage) %>%
+  mutate(Personal_damage = FATALITIES + INJURIES) %>%
+  filter(!is.na(Total_damage) & !is.na(Personal_damage)) %>%
+  select(Total_damage, Year, Type, Personal_damage) ->
+  storm_data
+```
+
+The final, cleaned dataset we will work with includes only the years 1994-present, and only those observations with a value for the economic damage.
+We keep only the year, type of event, economic damage, and personal damage (injuries and fatalities).
+
+## Results
+
+In this section we address the question of which type of storm event causes the most damage to the population's health, and which causes the most economic damage.
+
+We first summarise this data by year and type of storm event to assess the damage these events cause.
+```{r cache=TRUE}
+storm_data %>% group_by(Type, Year) %>%
+  summarise(number = n(), economic_harm = sum(Total_damage),
+            personal_harm = sum(Personal_damage)) -> summarised_data
+```
+
+Next we make two plots, one detailing the economic damage and the other the personal damage from each kind of storm event.
+These plots can be found in the figure below.
+```{r fig.show='hold', fig.width=4, fig.height=4, fig.cap="Plots showing the economic and personal damage from storm events from 1994-2011, according to the type of event recorded. We see that most damage comes in clumps, whether we are considering economic or personal effects. Floods/Rain account for a large amount of both economic and personal damage, but through spikes in individual years. Fires/Heat and Tornados prove dangerous to health more regularly."}
+ggplot(summarised_data, aes(x=Year, 
+                            y=economic_harm/1e+09)) +
+  geom_line() +
+  facet_wrap(vars(Type)) +
+  theme_minimal(10) +
+  ylab("Economic Damage (Billions of Dollars)") +
+  theme(plot.margin = margin(0,15,0,0),
+        plot.title = element_text(hjust=0.5)) +
+  labs(title = "Economic damage of Storm Events")
+  
+ggplot(summarised_data, aes(x = Year,
+                            y = personal_harm)) +
+  geom_line() +
+  facet_wrap(vars(Type)) +
+  theme_minimal(10) +
+  theme(plot.margin = margin(0,0,0,15),
+        plot.title = element_text(hjust=0.5)) +
+  ylab("Personal Damage (Injuries and Fatalities)") +
+  labs(title = "Injuries and Fatalities from Storm Events")
+```
+
+From the plots, we see that Flood/Rain causes both large personal and economic harm, while Hurricanes and events classified as "Other" account for most of the rest of the economic damage.
+Injuries and Fatalities occur in many of the types of storm events classified here, with Heat/Fires consistently causing personal harm in addition to the more concentrated effects of floods/rain and tornados.
+
+The last aspect we will consider is to sum the effects from all years we have data, to see which events have been the most harmful over the entire range of dates we are considering.
+
+```{r results="asis"}
+summarised_data %>% group_by(Type) %>%
+  summarise(total_number = sum(number),
+            total_economic_harm = sum(economic_harm)/1e+09,
+            total_personal_harm = sum(personal_harm)) %>%
+  xtable(display=c("d","s","d","f","d")) -> final_table
+
+names(final_table) <- c("Type of Event",
+                        "Number of Events",
+                        "Economic Damage (Billions)", 
+                        "Injuries + Fatalities")
+print(final_table, type = "html", include.rownames=FALSE)
+```
+The table shows that Flood/Rain events account for a huge percentage of economic damage, with hurricanes being the second most damaging despite having only 282 recorded events.
+This suggests that economically, hurricanes are the most damaging on a per-event basis.
+
+Personal health is most affected by Tornados, when taken all together, though again fires and heat events report more than half of these injuries/fatalities at less than half the number of events.
+Fires and heat also cause personal damage most years, as the plots above show, which suggests they are consistently harmful, if not as frequent.
+
+
+## Conclusion
+
+The data shows that events broadly classified as Floods/Rain are the most damaging in economic terms, and Tornados are most damaging in terms of personal health damage.
+Fires or Heat related events account for a large number of injuries or fatalities each year, with relatively few events, and hurricanes cause the most economic damage on a per-event basis by far.
+
+We have also seen that damage is largely concentrated in catastrophic events, especially when considering flood or rain damage.
+This analysis is cursory but suggests some areas to examine for further insight in how to prevent or mitigate future damage, and where to focus the resources we have.
+
