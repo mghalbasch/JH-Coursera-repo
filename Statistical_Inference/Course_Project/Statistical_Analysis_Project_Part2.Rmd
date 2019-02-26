@@ -1,0 +1,101 @@
+---
+title: "Exploring the Effect of Vitamin C on Tooth Growth"
+author: "Matthew Halbasch"
+date: "February 25, 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Overview
+In this report we analyse data from a treatment of guinea pigs with Vitamin C delivered in two forms - orange juice or ascorbic acid.
+We compare delivery methods and dosages to discern the effect of Vitamin C on tooth growth.
+We find that dosage is correlated with increased growth, but the effect of supplement type is not statistically significant.
+
+## Data Processing
+The data for this report are available through the `ToothGrowth` dataset in R.
+We load this dataset in below, and examine its structure.
+
+```{r}
+data(ToothGrowth)
+str(ToothGrowth)
+```
+This dataset has 3 variables: the tooth length, the supplement type (OJ or VC for orange juice or ascorbic acid) and the dose in mg/day.
+We briefly overview this data with a plot of the length by supplement and dose.
+
+```{r plot1, fig.cap="\\label{fig:violin} A violin plot of the tooth length as a function of dose and supplement. We see that within each supplement type, the dose appears to have a significant effect on the tooth length. The effect of the supplement itself is less clear from this plot.", fig.height=4, fig.width=6, fig.align='center'}
+library(ggplot2)
+library(ggsci)
+
+ggplot(data = ToothGrowth, aes(x=factor(dose), y=len,
+                               fill=factor(dose))) +
+  geom_violin(alpha=0.6) +
+  facet_grid(.~supp) +
+  scale_fill_uchicago() +
+  xlab("Dose") +
+  ylab("Tooth Length") +
+  labs(title = "Violin Plot of Tooth Length by Dose and Supplement",
+       fill = "Dose") +
+  theme_minimal(10) +
+  theme(plot.title=element_text(hjust=0.5))
+```
+Figure \ref{fig:violin} shows that the tooth length appears to vary significantly with dose within each supplement class.
+The effect between supplement classes for fixed doses is less clear, and could well be due to noise.
+We examine these assessments quantitatively in the next section.
+
+## Results
+For all the results in this section, we assume that each observation is drawn from the same population, so that e.g. the population standard deviations of each sub-group are equal.
+
+We first consider the effect of the dosage of Vitamin C on tooth growth.
+In particular, we will consider the tooth growth of the guinea pigs who had 2 mg/day of Vitamin C against the growth of those with only 0.5 mg/day.
+For the purpose of this analysis we will ignore the 1 mg/day group, as we are only trying to determine if dosing has any effect, and Figure \ref{fig:violin} shows that the largest effect will be between the 2 mg and 0.5 mg groups.
+
+First, we create the two groups.
+
+```{r message=FALSE}
+library(dplyr)
+X <- ToothGrowth %>% filter(dose == 0.5)
+length(X$len)
+
+Y <- ToothGrowth %>% filter(dose == 2)
+length(X$len)
+```
+Each of these groups has 20 members.
+We will now perform a 2-sided t-test on these data:
+
+```{r}
+t.test(x=X$len, y=Y$len, paired=FALSE, var.equal = TRUE)
+```
+The t test shows that the 95% confidence interval for the means falls well outside of 0, and we find a p-value of $p < 1e-13$, so we reject the null hypothesis that dosage has no effect at any reasonable level of $\alpha$.
+
+So we find that a dosage of 2 mg/day is associated with higher levels of tooth growth than 0.5 mg/day.
+
+Next, we consider the effect of the supplement type.
+We again construct our two subsets:
+
+```{r}
+X2 <- ToothGrowth %>% filter(supp == "VC")
+length(X2$len)
+
+Y2 <- ToothGrowth %>% filter(supp == "OJ")
+length(Y2$len)
+```
+Each group now has 30 observations.
+We perform a t-test on these two samples to compare the difference in their means to 0:
+
+```{r}
+t.test(x=X2$len, y=Y2$len, paired = FALSE, var.equal=TRUE)
+```
+We see that the 95% confidence interval does contain 0 this time, with a $p$ value of $p > .05$.
+So, with a standard value of $\alpha = .05$ we cannot reject the null hypothesis, and cannot conclude that either supplement is more effective at inducing tooth growth.
+
+## Conclusion
+
+We find in our analysis that while the dosage of Vitamin C does have an effect on tooth growth (dosage of 2 mg/day is associated with higher tooth growth than 0.5 mg/day), we fail to reject the hypothesis that the supplement type has no effect on tooth growth.
+
+Note that this analysis is under the assumption that all guinea pigs have the same underlying variance in tooth length, and that the tooth lengths are normally distributed. We also assume all observations are independent.
+
+These findings are roughly in line with the intuition provided by Figure \ref{fig:violin}, which shows a strong effect in dosage but a weaker effect between supplements.
+
+Further analysis could compare the effect within smaller subgroups (e.g. 2 mg/day OJ vs VC), but the sample sizes here are quite small for this sort of subgroup analysis, and we must be careful of the risks of multiple testing.
