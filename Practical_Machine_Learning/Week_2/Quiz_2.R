@@ -75,6 +75,7 @@ confusionMatrix(no_PCA_predictions, testing$diagnosis)
 # Accuracy for glm with no preprocessing is 0.6463
 
 
+
 preproc_5 <- preProcess(IL_data_5, method="pca", thresh=0.8)
 train_data_5 <- predict(preproc_5, IL_data_5)
 test_data_5 <- predict(preproc_5, test_IL_data_5)
