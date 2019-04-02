@@ -1,0 +1,54 @@
+---
+title: "How Americans Have Viewed Their Most Important Problems Since 1960"
+author: "Matthew Halbasch"
+date: "April 2, 2019"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(plotly)
+library(tidyverse)
+```
+
+## Gallup Survey Responses
+
+- Gallup has asked American's to identify their most important problem dating
+back to the 1950s.
+- We will take a look at how Americans have responded, from 1960 to today.
+- Data for this project come from the `politicaldata` package by G. Elliot Morris (see his blog, [The Crosstab](https://www.thecrosstab.com/project/politicaldata-package/), for more information)
+
+
+
+## Cleaning the Data
+
+We prepare the data by selecting responses from 1960 to today, and finding the rank of each response in a given year:
+
+```{r echo=TRUE}
+library(politicaldata)
+
+pol_data <- cap_get_mip(min_year = 1960)
+pol_data %>% group_by(year) %>% 
+  mutate(rank = order(order(percent, decreasing = TRUE)),
+         title_text = gsub("^General ", "", title_text)) %>%
+  select(percent, year, title_text, rank) ->
+  cleaned_data
+```
+
+
+## Animated Plot of the Data
+
+```{r warning = FALSE, fig.height = 4, fig.width = 6, message = FALSE}
+cleaned_data %>% plot_ly(x = ~title_text, y = ~percent, type = "scatter", 
+                         frame = ~year, size = ~(1/rank)) %>%
+  layout(showlegend = FALSE)
+```
+
+## Conclusion
+
+- Americans frequently view domestic macroeconomic issues as their most important problem, but this changes in times of crisis.
+- See the [Comparative Agendas Project](https://www.comparativeagendas.net/datasets_codebooks) for more information about this data and more datasets like it.
+
+
+
