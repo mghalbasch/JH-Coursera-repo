@@ -1,0 +1,73 @@
+---
+title: "A Simple Interface To View Stock Prices"
+author: "Matthew Halbasch"
+date: "April 2, 2019"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(reshape2)
+library(ggsci)
+```
+
+## Functionality
+
+We built a simple [web app](https://mghalbasch.shinyapps.io/Data_Products_Final_Project/) that allows the user to input stock symbols and see how the price of that stock has changed over time.
+The basic functionality includes:
+
+- A slider to choose what years to display
+- An input box to type in the stock symbol
+    * Web app checks that the symbol matches a stock before displaying it
+- A button to reset the page to start over if desired
+
+
+## Usage
+
+- To get started, just type a stock symbol into the box and hit "Submit"!
+
+- A graph will be displayed with the stock's price over the years chosen
+
+- If you add another stock symbol, the graph will be updated to compare the two.
+
+- To change the range of dates, just move the slider for the min and max years.
+
+
+## Data Source
+
+The data for this web app comes from Yahoo Finance, and is loaded in via the
+`quantmod` package.
+
+For Google's stock (symbol GOOGL), the server would read in the data like this:
+
+```{r echo = TRUE, message = FALSE}
+library(quantmod)
+df <- getSymbols("GOOG", auto.assign = FALSE)
+```
+
+We also clean the data briefly using the code:
+
+```{r echo = TRUE}
+df <- data.frame(df) %>% rownames_to_column("Date") %>%
+        select(Date, GOOGL = ends_with("Close"))
+```
+
+## Example Plot
+
+Finally we have an example of the kind of plot the web app produces.
+This is made with the `ggplot2` package.
+
+```{r}
+df %>% melt(id.vars = "Date") %>% 
+      ggplot(aes(x = as.Date(Date), y = value, color = variable)) +
+      geom_line() +
+      xlab("Date") +
+      ylab("Closing Stock Price") +
+      labs(title = "Stock Prices Over Time") +
+      theme_minimal() +
+      scale_color_nejm() +
+      theme(legend.title = element_blank())
+```
+
+
