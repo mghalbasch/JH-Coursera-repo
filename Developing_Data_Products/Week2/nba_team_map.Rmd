@@ -1,0 +1,83 @@
+---
+title: "NBA Team Map"
+author: "Matthew Halbasch"
+date: "April 1, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r load_packages, message = FALSE, warning= FALSE}
+library(leaflet)
+library(tidyverse)
+```
+
+## Map of NBA Team Arenas
+
+### Click on a team's logo to see the team name!
+
+```{r make_map}
+lat = c(25.78138889, 32.79055556, 28.53916667, 29.42694444, 39.76388889,
+        40.68250000, 38.89805556, 35.46333333, 35.13833333, 43.04500000,
+        38.58027778, 42.34111111, 40.75055556, 45.53166667, 37.75027778,
+        39.74861111, 41.49638889, 43.64333333, 29.94888889, 35.22500000,
+        34.04305556, 34.04305556, 33.75722222, 33.44583333, 44.97944444,
+        42.36638889, 29.75083333, 41.88055556, 40.76833333, 39.90111111)
+long = c(-80.18805556, -96.793222, -81.38361111, -98.43750000, -86.15555556,
+         -73.97500000, -77.02083333, -97.51500000, -90.05055556, -87.91805556,
+         -121.49972222, -83.05500, -73.99361111, -122.66666667, -122.20305556,
+         -105.0075000, -81.68805556, -79.37916667, -90.08194444, -80.83916667,
+         -118.2672222, -118.2672222, -84.3963888, -112.07138889, -93.27611111,
+         -71.06222222, -95.36222222, -87.67416667, -111.90111111, -75.17194444)
+teams = c("Miami Heat", "Dallas Mavericks", "Orlando Magic", 
+          "San Antonio Spurs", "Indiana Pacers", "Brooklyn Nets", 
+          "Washington Wizards", "Oklahoma City Thunder", "Memphis Grizzlies",
+          "Milwaukee Bucks", "Sacramento Kings", "Detroit Pistons",
+          "New York Knicks", "Portland Trail Blazers", "Golden State Warriors",
+          "Denver Nuggets", "Cleveland Cavaliers", "Toronto Raptors",
+          "New Orleans Pelicans", "Charlotte Hornets", "Los Angeles Clippers",
+          "Los Angeles Lakers", "Atlanta Hawks", "Phoenix Suns",
+          "Minnesota Timberwolves", "Boston Celtics", "Houston Rockets",
+          "Chicago Bulls", "Utah Jazz", "Philadelphia 76ers")
+
+icon_urls = c("http://content.sportslogos.net/logos/6/214/full/burm5gh2wvjti3xhei5h16k8e.gif",
+              "http://content.sportslogos.net/logos/6/228/full/3463_dallas_mavericks-primary-2018.png",
+              "http://content.sportslogos.net/logos/6/217/full/wd9ic7qafgfb0yxs7tem7n5g4.gif",
+              "http://content.sportslogos.net/logos/6/233/full/2547_san_antonio_spurs-primary-2018.png",
+              "http://content.sportslogos.net/logos/6/224/full/4812_indiana_pacers-primary-2018.png",
+              "http://content.sportslogos.net/logos/6/3786/full/137_brooklyn-nets-primary-2013.png",
+              "http://content.sportslogos.net/logos/6/219/full/5671_washington_wizards-primary-2016.png",
+              "http://content.sportslogos.net/logos/6/2687/full/khmovcnezy06c3nm05ccn0oj2.png",
+              "http://content.sportslogos.net/logos/6/231/full/4373_memphis_grizzlies-primary-2019.png",
+              "http://content.sportslogos.net/logos/6/225/full/8275_milwaukee_bucks-primary-2016.png",
+              "http://content.sportslogos.net/logos/6/240/full/4043_sacramento_kings-primary-2017.png",
+              "http://content.sportslogos.net/logos/6/223/full/2164_detroit_pistons-primary-2018.png",
+              "http://content.sportslogos.net/logos/6/216/full/2nn48xofg0hms8k326cqdmuis.gif",
+              "http://content.sportslogos.net/logos/6/239/full/9725_portland_trail_blazers-primary-2018.png",
+              "http://content.sportslogos.net/logos/6/235/full/qhhir6fj8zp30f33s7sfb4yw0.png",
+              "http://content.sportslogos.net/logos/6/229/full/8926_denver_nuggets-primary-2019.png",
+              "http://content.sportslogos.net/logos/6/222/full/6921_cleveland_cavaliers-primary-2018.png",
+              "http://content.sportslogos.net/logos/6/227/full/4578_toronto_raptors-primary-2016.png",
+              "http://content.sportslogos.net/logos/6/4962/full/2681_new_orleans_pelicans-primary-2014.png",
+              "http://content.sportslogos.net/logos/6/5120/full/1926_charlotte__hornets_-primary-2015.png",
+              "http://content.sportslogos.net/logos/6/236/full/5462_los_angeles_clippers-primary-2016.png",
+              "http://content.sportslogos.net/logos/6/237/full/uig7aiht8jnpl1szbi57zzlsh.png",
+              "http://content.sportslogos.net/logos/6/220/full/9168_atlanta_hawks-primary-2016.png",
+              "http://content.sportslogos.net/logos/6/238/full/4370_phoenix_suns-primary-2014.png",
+              "http://content.sportslogos.net/logos/6/232/full/9669_minnesota_timberwolves-primary-2018.png",
+              "http://content.sportslogos.net/logos/6/213/full/slhg02hbef3j1ov4lsnwyol5o.png",
+              "http://content.sportslogos.net/logos/6/230/full/8xe4813lzybfhfl14axgzzqeq.gif",
+              "http://content.sportslogos.net/logos/6/221/full/hj3gmh82w9hffmeh3fjm5h874.png",
+              "http://content.sportslogos.net/logos/6/234/full/6749_utah_jazz-primary-2017.png",
+              "http://content.sportslogos.net/logos/6/218/full/7034_philadelphia_76ers-primary-2016.png")
+              
+
+arena_df <- data.frame(lat = lat, lng = long)
+
+arena_df %>% leaflet() %>% addTiles %>% 
+  addMarkers(popup = teams, icon = ~icons(iconUrl = icon_urls,
+                                          iconWidth = 30, iconHeight = 30,
+                                          iconAnchorX = 15, iconAnchorY = 0))
+```
