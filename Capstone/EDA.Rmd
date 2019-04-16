@@ -1,0 +1,273 @@
+---
+title: "Milestone Report"
+author: "Matthew Halbasch"
+date: "April 14, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r load_packages, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(tidytext)
+library(ggsci)
+library(xtable)
+```
+
+## Overview
+
+In recent years, demand for high speed communication through texting and social media has exploded, and with it the desire for ever faster ways of typing messages.
+Predictive text algorithms are one of the more recent frontiers in this field, providing potential words for users to add to their messages instantly.
+In order for these algorithms to be useful, they must be able to accomplish three goals simultaneously:
+
+1) Accuracy in predicting the next word a user wants to type.
+
+2) The ability to provide real-time estimates, which translates to very quick run time.
+
+3) The ability to run on limited resources, like those on a phone or tablet.
+
+In this report, we provide plans for creating such an algorithm in the form of a web application.
+We focus on a large database of English writing from three different sources: Twitter, news articles, and blog posts.
+We provide an exploratory analysis of this data, and describe a roadmap for creating a predictive text algorithm based on this data.
+
+
+## Features of the Data
+
+The data used in this report come from a corpus called HC Corpora, and are compiled from publicly available web sources.
+This dataset can be downloaded 
+[here](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip).
+In this project we focus on only the English language sources, and use the Twitter, news and blogs files.
+
+
+```{r load_data, cache = TRUE, message = FALSE, warning = FALSE}
+path = "./data/en_US/en_US"
+twitter_file <- file(paste(path, "twitter.txt", sep="."))
+news_file <- file(paste(path, "news.txt", sep="."))
+blogs_file <- file(paste(path, "blogs.txt", sep="."))
+
+twitter_raw <- readLines(twitter_file)
+news_raw <- readLines(news_file)
+blogs_raw <- readLines(blogs_file)
+
+# Close the connections
+close(twitter_file)
+close(news_file)
+close(blogs_file)
+```
+
+```{r summarise, cache=TRUE}
+tweets <- length(twitter_raw)
+news_articles <- length(news_raw)
+blog_posts <- length(blogs_raw)
+```
+
+The data files are organized into documents (tweets for the Twitter dataset, news articles for the news dataset, and blogs for the blogs dataset).
+We break these documents down into words and pairs of words to understand what the common words are, and how these words are paired.
+Table 1 below shows some basic summary statistics of these data sources.
+
+
+```{r tokenize_function}
+my_tokenizer <- function(corp){
+  tibble(text = corp) %>% unnest_tokens(word, text) ->
+    raw_words
+  
+  raw_words %>% count(word, sort = TRUE) %>%
+    mutate(cumulative = cumsum(n),
+           frac = cumulative/length(raw_words$word)) %>%
+    filter(frac <= 0.9) ->
+    words
+  
+  tibble(text = corp) %>% unnest_tokens(pair, text, token = "ngrams",
+                                        n = 2, collapse = FALSE) ->
+    raw_pairs
+  
+  raw_pairs %>% count(pair, sort = TRUE) %>% 
+    mutate(cumulative = cumsum(n),
+           frac = cumulative/length(raw_pairs$pair)) %>%
+    filter(frac <= 0.75) ->
+    pairs
+  
+  return(list(words = words, pairs = pairs))
+}
+```
+
+
+```{r parse_docs, cache=TRUE}
+# Run each of our raw files through the tokenizer function
+twitter <- my_tokenizer(twitter_raw)
+remove(twitter_raw)
+
+news <- my_tokenizer(news_raw)
+remove(news_raw)
+
+blogs <- my_tokenizer(blogs_raw)
+remove(blogs_raw)
+```
+
+```{r consolidate, cache = TRUE}
+twitter_words <- mutate(twitter$words, source = "twitter", rank=row_number())
+news_words <- mutate(news$words, source = "news", rank = row_number())
+blogs_words <- mutate(blogs$words, source = "blogs", rank = row_number())
+
+words <- rbind(twitter_words, news_words, blogs_words)
+
+twitter_pairs <- mutate(twitter$pairs, source = "twitter", rank = row_number())
+news_pairs <- mutate(news$pairs, source = "news", rank=row_number())
+blogs_pairs <- mutate(blogs$pairs, source = "blogs", rank=row_number())
+
+pairs <- rbind(twitter_pairs, news_pairs, blogs_pairs)
+```
+
+```{r summary_table, results = "asis"}
+library(xtable)
+options(xtable.comment = FALSE)
+
+twitter_fifty = nrow(twitter_words %>% filter(frac <=.5)) + 1
+news_fifty = nrow(news_words %>% filter(frac <= .5)) + 1
+blogs_fifty = nrow(blogs_words %>% filter(frac <= .5)) + 1
+
+table <- data.frame(Source = c("Twitter", "News", "Blogs"),
+                    Documents = prettyNum(
+                      c(tweets, news_articles, blog_posts), big.mark=","),
+                    Words = prettyNum(
+                      c(twitter_words$n[1]/twitter_words$frac[1],
+                              news_words$n[1]/news_words$frac[1],
+                              blogs_words$n[1]/blogs_words$frac[1]),
+                      big.mark=","),
+                    Pairs = prettyNum(
+                      c(twitter_pairs$n[1]/twitter_pairs$frac[1],
+                              news_pairs$n[1]/news_pairs$frac[1],
+                              blogs_pairs$n[1]/blogs_pairs$frac[1]),
+                      big.mark=","),
+                    fifty = c(twitter_fifty, news_fifty, blogs_fifty),
+                    ninety = prettyNum(c(nrow(twitter_words) + 1,
+                               nrow(news_words) + 1,
+                               nrow(blogs_words) + 1), big.mark=","))
+
+names(table) <- c("Source", "Documents", "Word Instances", "Pairs",
+                  "50% Coverage", "90% Coverage")
+xtable(table, digits = 0, align = c("l", "l", "r", "r", "r", "c", "c"),
+       caption = "Table 1: A table of summary statistics from the three English data sources. We see that the twitter and blogs datasets have many more words than the news dataset, but each has at least 2 million. The 50% Coverage and 90% Coverage columns count how many unique words are required to cover half/90% of all word instances.") %>% 
+  print(include.rownames = FALSE, type = "html")
+```
+
+### Word Coverage
+
+An important feature of the data is that while there are an enormous number of unique words and especially word instances, most of these instances can be covered by a very small number of words. 
+For example, Table 1 illustrates that only 114 unique words are required to cover half of all word instances in blogs, and only 132 for tweets.
+News articles require 218, but these small numbers are extremely manageable for any algorithm.
+
+Attempting to achieve 90% coverage is much more difficult, and requires more than 5000 words in each dataset. 
+While this is still lower than the full vocabulary in each dataset, it becomes more computationally intensive to consider more than 5000 possible words at each stage of prediction, for example.
+
+Figure 1 below shows the general distriubtion of coverage as a function of the number of words included.
+
+
+```{r frac_graph, fig.cap = "Figure 1: A plot of the coverage of all word instances as a function of the number of unique words considered. We see a sharp rise in the coverage in each dataset up to about 500 words, with diminishing returns beyond. News sources require the most distinct words of the three sources considered."}
+words %>% 
+  ggplot(aes(x = rank, y = frac, color = source)) +
+  geom_path(size = 1) +
+  theme_minimal() +
+  scale_color_nejm() +
+  xlab("Number of Unique Words") +
+  ylab("Coverage of Word Instances") +
+  labs(title = "How Many Different Words Should We Consider?",
+       subtitle = "Fraction of Total Word Instances Covered by a Given Number of Unique Words")
+
+```
+
+### Top Words and Pairs
+
+Next we look briefly at the top words and pairs appearing in our dataset.
+Figures 2 and 3 below illustrate some features of these words, including the difference between the sources in our dataset.
+
+```{r top_words, fig.cap="Figure 2: Top words and their coverage across different data sources. We see that most of the words appearing here are articles and prepositions, with the exception of 'you' and 'I'. News sources also very rarely use these pronouns, so nearly all of their top coverage is due to articles and prepositions."}
+top_five_list = words$word[which(words$rank <= 5)]
+
+words %>% mutate(percent = 100*n*frac/cumulative) %>%
+  arrange(source, desc(percent)) %>% 
+  mutate(word = factor(word, words$word[1:length(twitter_words$word)])) %>%
+  filter(word %in% top_five_list) %>%
+  ggplot(aes(x = word, y = percent, fill = source)) + 
+  geom_col(position = "dodge", alpha = 0.8) +
+  coord_flip() +
+  theme_minimal() +
+  scale_fill_nejm() +
+  xlab("Word") +
+  ylab("Percent") +
+  labs(title = "How Do Different Sources Use Popular Words?",
+       subtitle = "Percent of Word Instances Featuring the Most Popular Words Broken Down by Source")
+```
+
+```{r top_pairs, fig.cap = "Figure 3: Top pairs and their coverage across data sources. While the percentages covered are substantially lower than individual words, the same pattern appears here, where most pairs are a combination of an article and a preposition. Tweets stand out in their inclusion of 'thanks for' and 'I love' in this plot."}
+top_ten_list_pairs = pairs$pair[which(pairs$rank <= 10)]
+
+pairs %>% mutate(percent = 100*n*frac/cumulative) %>%
+  arrange(source, desc(percent)) %>% 
+  mutate(pair = factor(pair, pairs$pair[1:length(twitter_pairs$pair)])) %>%
+  filter(pair %in% top_ten_list_pairs) %>%
+  ggplot(aes(x = pair, y = percent, fill = source)) + 
+  geom_col(position = "dodge", alpha = 0.8) +
+  coord_flip() +
+  theme_minimal() +
+  scale_fill_nejm() +
+  xlab("Pair") +
+  ylab("Percent") +
+  labs(title = "What Pairs Are Popular from Different Sources?",
+       subtitle = "Percent of Pairs Represented by the Most Popular Pairs")
+```
+
+The figures show us an important feature of English language composition: a large amount of word coverage is dominated by articles and prepositions, which appear in most sentences, while specific verbs and nouns are relatively rarer (and context dependent).
+
+This carries over to the top pairs considered, which feature combinations of articles and prepositions, along with conjugations of "to be", the most common verb.
+These features will be important in prediction -
+in order to accurately predict the right tense for verbs or when to use an article it will be necessary to view more context than just the previous word.
+This also gives one avenue to language detection if our algorithm will feature different languages, as usage of the articles and prepositions of a particular language is a consistent way to determine the language being spoken.
+
+One last takeaway from these figures is the difference in pair frequency by source.
+For example, a user on twitter is far more likely to use "thanks for" than a blog or news source.
+This reminds us to consider the context of our predictive text algorithm and what an appropriate training set might be for that context.
+
+
+
+## Prediction Algorithm Roadmap
+
+We plan to use this dataset to train a predictive text algorithm that will run as a web application.
+The web app will ultimately have a user type in some text, and use this text to predict the next word the user wants to type.
+
+In order to create the prediction algorithm, there are a number of steps we still need to take to finish cleaning the data:
+
+* Create a profanity filter, to disregard any profane language used (and ensure it is not predicted)
+
+* Handle misspelled words and abbreviations
+
+* Handle special characters (and in the case of Twitter, emojis)
+
+* Consider chains of words longer than pairs. A balance between potentially better predictions (longer chains) and performance needs to be found.
+
+Additionally, we will need to make a decision of how many words to include in the vocabulary for prediction.
+Again, we will seek a balance between predictive power and performance: it will be more useful to provide predictions more quickly than to potentially predict very rare words.
+
+Once we have cleaned the data and established a method for handling chains of words, we move to the actual predictive model.
+This model will take in the last few words (exact number to be determined later) and consider likely next words.
+This may occur in steps, for example:
+
+1) Check to see the distribution of pairs beginning with the word just typed, if possible. Some pairs (e.g. "going to") may make good predictions even at this stage.
+
+2) If the word used is relatively rare, consider the part of speech of the word and the distribution of pairs beginning with that part of speech. 
+
+3) If the word is common enough but no pair stands out in particular, consider triplets of words instead to help inform the top choices. Repeat this step to n-grams if computationally possible.
+
+This is a rough sketch of the idea for predictive text - the specifics will depend on how computationally intensive each consideration proves to be.
+There are many approaches to determining the top choices from each step, but one may be to use a probability based model, informed by frequencies of words, pairs, triplets, and so on.
+
+Feedback on this roadmap is appreciated - even in the preparation of this report, computation of pairs proves computationally intensive, so better ways of handling the data (processing it to include just popular words/pairs/triplets, sampling, etc.) will be considered.
+
+## Code Appendix
+
+```{r ref.label=knitr::all_labels(), echo = T, eval = F}
+```
+
+
